@@ -1,246 +1,218 @@
-"""Mغامرات العلوم: Arabic educational mini-games for children."""
-import os
-import random
 import pygame
+import sys
+import math
+import numpy as np
+from quiz_bank import SCIENCE_SECTIONS
+from game_assets import draw_lion_asset, draw_deer_asset, draw_plant_asset, draw_stone_asset, draw_human_asset, draw_confetti
+from entities import KidButton, RewardStars, FoodSprite
 
-from game_assets import draw_animal, draw_background
-from quiz_bank import ANIMALS, TRIVIA, RIDDLES, DIETS, DIET_HINTS
-from entities import Button, FloatingStar, Confetti, ProgressBar, TouchTracker
+try:
+    import android
+    android.init()
+except ImportError:
+    pass
 
-WIDTH, HEIGHT = 960, 540
-FONT_PATHS = [
-    os.environ.get("ARABIC_FONT", ""),
-    "assets/NotoNaskhArabic-Regular.ttf",
-    "/system/fonts/NotoNaskhArabic-Regular.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-]
+pygame.init()
+pygame.mixer.init(frequency=22050, size=-16, channels=1)
 
+SCREEN_WIDTH = 1280
+SCREEN_HEIGHT = 720
 
-class ScienceGame:
+COLOR_BG = (44, 62, 80) 
+COLOR_PANEL = (52, 73, 94)
+COLOR_TEXT = (255, 255, 255)
+COLOR_ACCENT = (230, 126, 34)
+
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Science Journey Pro")
+clock = pygame.time.Clock()
+
+def play_educational_sound(sound_type):
+    duration = 0.3
+    sample_rate = 22050
+    n_samples = int(duration * sample_rate)
+    
+    if sound_type == "CORRECT":
+        frequencies = [523, 659, 784, 1046]
+        samples = np.array([], dtype=np.int16)
+        for freq in frequencies:
+            t = np.linspace(0, duration/4, int(n_samples/4), False)
+            sig = np.sin(2 * np.pi * freq * t) * 16383
+            samples = np.append(samples, sig.astype(np.int16))
+    elif sound_type == "EXPLAIN":
+        t = np.linspace(0, duration, n_samples, False)
+        samples = (np.sin(2 * np.pi * 330 * t) * 12000).astype(np.int16)
+    else:
+        t = np.linspace(0, 0.1, int(sample_rate * 0.1), False)
+        samples = (np.sin(2 * np.pi * 587 * t) * 10000).astype(np.int16)
+        
+    sound = pygame.mixer.Sound(buffer=samples)
+    sound.play()
+
+class AppManager:
     def __init__(self):
-        pygame.init()
-        pygame.display.set_caption("مغامرات العلوم")
-        self.screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
-        self.clock = pygame.time.Clock()
-        self.font_path = next((p for p in FONT_PATHS if p and os.path.isfile(p)), None)
-        self.small = self._font(23)
-        self.medium = self._font(30)
-        self.large = self._font(44)
-        self.state = "menu"
-        self.previous = ["menu"]
-        self.touch = TouchTracker()
-        self.stars = []
-        self.confetti = []
+        self.state = "MENU"
+        self.previous_state = "MENU"
+        self.selected_section = "LIVING"
+        self.q_idx = 0
         self.score = 0
-        self.round_index = 0
-        self.message = ""
-        self.message_timer = 0
-        self.leaderboard = []
-        self.buttons = []
-        self.setup_game()
+        self.show_celebration = False
+        self.celebration_timer = 0
+        self.stars = []
+        
+        self.btn_start = KidButton(SCREEN_WIDTH//2 - 280, 440, 240, 80, (46, 204, 113), (39, 174, 96))
+        self.btn_go_minigame = KidButton(SCREEN_WIDTH//2 + 40, 440, 240, 80, (155, 89, 182), (142, 68, 173))
+        
+        self.sec_buttons = {
+            "LIVING": KidButton(60, 320, 260, 110, (155, 89, 182), (142, 68, 173)),
+            "PLANTS": KidButton(360, 320, 260, 110, (39, 174, 96), (30, 130, 76)),
+            "ANIMALS": KidButton(660, 320, 260, 110, (230, 126, 34), (211, 84, 0)),
+            "HUMAN": KidButton(960, 320, 260, 110, (231, 76, 60), (192, 57, 43))
+        }
+        
+        self.btn_exit_yes = KidButton(SCREEN_WIDTH//2 - 220, 400, 180, 70, (192, 57, 43), (150, 40, 30))
+        self.btn_exit_no = KidButton(SCREEN_WIDTH//2 + 40, 400, 180, 70, (46, 204, 113), (30, 150, 80))
 
-    def _font(self, size):
-        # Explicit font file only: no platform-dependent SysFont(None, ...).
-        if self.font_path:
-            try:
-                return pygame.font.Font(self.font_path, size)
-            except pygame.error:
-                pass
-        return pygame.font.Font(pygame.font.get_default_font(), size)
-
-    def text(self, surface, value, center, size=28, color=(50, 57, 78)):
-        font = self._font(size)
-        text = str(value)
-        try:
-            import arabic_reshaper
-            from bidi.algorithm import get_display
-            text = get_display(arabic_reshaper.reshape(text))
-        except Exception:
-            pass
-        image = font.render(text, True, color)
-        surface.blit(image, image.get_rect(center=(int(center[0]), int(center[1]))))
-
-    def setup_game(self):
-        self.buttons = []
-        self.round_index = 0
-        if self.state == "identify":
-            self.identify_order = random.sample(ANIMALS, len(ANIMALS))
-            self.progress = ProgressBar((350, 32, 260, 22), len(self.identify_order))
-        elif self.state == "feeder":
-            self.feeder_order = random.sample(ANIMALS, len(ANIMALS))
-            self.progress = ProgressBar((350, 32, 260, 22), len(self.feeder_order))
-        elif self.state == "trivia":
-            self.trivia_order = random.sample(TRIVIA, len(TRIVIA))
-            self.progress = ProgressBar((350, 32, 260, 22), len(self.trivia_order))
-
-    def go(self, state):
-        self.previous.append(self.state)
-        self.state = state
-        self.message = ""
-        if state in ("identify", "feeder", "trivia"):
-            self.setup_game()
-
-    def back(self):
-        if self.state == "menu":
-            return
-        self.state = self.previous.pop() if self.previous else "menu"
-        self.buttons = []
-
-    def add_button(self, rect, label, color, action):
-        self.buttons.append((Button(rect, label, color, action), action))
-
-    def draw_panel(self, title):
-        draw_background(self.screen, pygame.time.get_ticks()/1000)
-        pygame.draw.rect(self.screen, (255, 250, 227), (35, 24, WIDTH-70, HEIGHT-48), border_radius=30)
-        pygame.draw.rect(self.screen, (255, 255, 255), (35, 24, WIDTH-70, HEIGHT-48), 4, border_radius=30)
-        self.text(self.screen, title, (WIDTH//2, 65), 36, (57, 86, 113))
-        self.text(self.screen, f"⭐ {self.score}", (WIDTH-115, 65), 27, (207, 139, 28))
-
-    def menu(self):
-        self.draw_panel("مغامرات العلوم")
-        self.text(self.screen, "هيا نكتشف عالم الحيوانات والطبيعة!", (WIDTH//2, 130), 25)
-        items = [
-            ("من أنا؟", "identify", (255, 184, 77)),
-            ("أطعم الحيوان", "feeder", (92, 203, 158)),
-            ("أسئلة العلماء", "trivia", (111, 165, 245)),
-            ("لوحة الأبطال", "leaderboard", (223, 133, 197)),
+        self.lion_target_rect = pygame.Rect(250, 200, 200, 200)
+        self.deer_target_rect = pygame.Rect(800, 200, 200, 200)
+        self.foods = [
+            FoodSprite(450, 500, "MEAT"),
+            FoodSprite(700, 500, "GRASS")
         ]
-        for i, (label, state, color) in enumerate(items):
-            x = 145 + i*175
-            self.add_button((x, 230, 150, 100), label, color, ("go", state))
-        for i, a in enumerate(ANIMALS[:4]):
-            draw_animal(self.screen, a["name"], (160+i*210, 420), 0.55, pygame.time.get_ticks()/1000)
 
-    def identify(self):
-        animal = self.identify_order[self.round_index]
-        self.draw_panel("من أنا؟")
-        self.progress.value = self.round_index
-        self.progress.draw(self.screen)
-        self.text(self.screen, animal["trait"], (WIDTH//2, 130), 26)
-        draw_animal(self.screen, animal["name"], (WIDTH//2, 270), 1.0, pygame.time.get_ticks()/1000)
-        names = random.sample([a["name"] for a in ANIMALS if a != animal], 3)
-        options = names + [animal["name"]]
-        random.Random(self.round_index + 20).shuffle(options)
-        for i, name in enumerate(options):
-            self.add_button((120+i*180, 400, 160, 65), name,
-                            [(255, 184, 77), (94, 195, 162), (107, 158, 238), (222, 129, 193)][i],
-                            ("answer", name == animal["name"]))
+    def setup_quiz_options(self):
+        questions = SCIENCE_SECTIONS[self.selected_section]
+        if self.q_idx < len(questions):
+            q_data = questions[self.q_idx]
+            self.opt_buttons = []
+            for i, opt in enumerate(q_data["opts"]):
+                ox = SCREEN_WIDTH//2 - 400 + (i * 280)
+                self.opt_buttons.append((KidButton(ox, 520, 250, 75, (52, 152, 219), (41, 128, 185)), opt))
 
-    def feeder(self):
-        animal = self.feeder_order[self.round_index]
-        self.draw_panel("ماذا يأكل هذا الحيوان؟")
-        self.progress.value = self.round_index
-        self.progress.draw(self.screen)
-        draw_animal(self.screen, animal["name"], (WIDTH//2, 265), 0.95, pygame.time.get_ticks()/1000)
-        self.text(self.screen, f"أنا {animal['name']}، اختر نوع غذائي!", (WIDTH//2, 135), 27)
-        colors = [(94, 195, 162), (255, 147, 120), (106, 158, 238)]
-        for i, diet in enumerate(DIETS):
-            self.add_button((190+i*205, 405, 180, 68), diet, colors[i],
-                            ("answer", diet == animal["diet"]))
+manager = AppManager()
 
-    def trivia(self):
-        q = self.trivia_order[self.round_index]
-        self.draw_panel("أسئلة العلماء")
-        self.progress.value = self.round_index
-        self.progress.draw(self.screen)
-        self.text(self.screen, q["q"], (WIDTH//2, 155), 29)
-        for i, option in enumerate(q["options"]):
-            self.add_button((220, 225+i*72, 520, 57), option,
-                            [(255, 190, 84), (107, 166, 239), (94, 195, 162)][i],
-                            ("trivia", i == q["a"]))
+def draw_hud():
+    pygame.draw.rect(screen, COLOR_PANEL, (0, 0, SCREEN_WIDTH, 60))
+    pygame.draw.rect(screen, (241, 196, 15), (20, 15, min(300, manager.score * 10), 30), border_radius=10)
 
-    def leaderboard_screen(self):
-        self.draw_panel("لوحة الأبطال")
-        self.text(self.screen, "كل محاولة تعلّمنا شيئاً جديداً!", (WIDTH//2, 150), 27)
-        rows = sorted(self.leaderboard, reverse=True)[:5]
-        if not rows:
-            self.text(self.screen, "ابدأ اللعب لتجمع النجوم!", (WIDTH//2, 250), 28)
-        for i, score in enumerate(rows):
-            self.text(self.screen, f"{i+1}. {score} نجمة", (WIDTH//2, 220+i*48), 27)
-        self.add_button((380, 415, 200, 65), "عودة", (255, 184, 77), ("back", None))
+def main_loop():
+    running = True
+    while running:
+        screen.fill(COLOR_BG)
+        mx, my = pygame.mouse.get_pos()
+        click = False
 
-    def finish_round(self, correct):
-        if correct:
-            self.score += 1
-            self.stars.extend(FloatingStar(random.randint(250, 710), 250) for _ in range(7))
-            self.confetti.append(Confetti(WIDTH//2, 230))
-            self.message = "إجابة رائعة! أحسنت!"
-        else:
-            self.message = "محاولة جميلة! لنتعلم معاً."
-        self.message_timer = 1.0
-        self.round_index += 1
-        length = {
-            "identify": len(ANIMALS),
-            "feeder": len(ANIMALS),
-            "trivia": len(TRIVIA),
-        }.get(self.state, 0)
-        if self.round_index >= length:
-            self.leaderboard.append(self.score)
-            self.state = "menu"
-            self.previous = ["menu"]
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE or event.key == pygame.K_AC_BACK:
+                    if manager.state != "CONFIRM_EXIT":
+                        manager.previous_state = manager.state
+                        manager.state = "CONFIRM_EXIT"
+                        play_educational_sound("CLICK")
+                    else:
+                        manager.state = manager.previous_state
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1: 
+                    click = True
+                    if manager.state == "MINI_GAME":
+                        for food in manager.foods:
+                            if food.rect.collidepoint((mx, my)):
+                                food.dragging = True
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if event.button == 1 and manager.state == "MINI_GAME":
+                    for food in manager.foods:
+                        if food.dragging:
+                            food.dragging = False
+                            if food.food_type == "MEAT" and manager.lion_target_rect.collidepoint((mx, my)):
+                                manager.score += 20
+                                manager.show_celebration = True
+                                manager.celebration_timer = 30
+                                play_educational_sound("CORRECT")
+                            elif food.food_type == "GRASS" and manager.deer_target_rect.collidepoint((mx, my)):
+                                manager.score += 20
+                                manager.show_celebration = True
+                                manager.celebration_timer = 30
+                                play_educational_sound("CORRECT")
+                            food.reset_position()
 
-    def handle_action(self, action):
-        kind, value = action
-        if kind == "go":
-            self.go(value)
-        elif kind == "back":
-            self.back()
-        elif kind == "answer":
-            self.finish_round(value)
-        elif kind == "trivia":
-            self.finish_round(value)
+        if manager.state == "MINI_GAME":
+            for food in manager.foods:
+                if food.dragging:
+                    food.rect.x = mx - 45
+                    food.rect.y = my - 45
 
-    def run(self):
-        running = True
-        while running:
-            dt = min(self.clock.tick(60)/1000.0, 0.05)
-            size = self.screen.get_size()
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                if event.type == pygame.KEYDOWN and event.key in (
-                    pygame.K_ESCAPE, getattr(pygame, "K_AC_BACK", pygame.K_ESCAPE)
-                ):
-                    self.back()
-                kind, pos = self.touch.events(event, size)
-                if kind == "up" and pos:
-                    sx, sy = WIDTH/size[0], HEIGHT/size[1]
-                    logical = (int(pos[0]*sx), int(pos[1]*sy))
-                    for button, action in list(self.buttons):
-                        if button.contains(logical):
-                            self.handle_action(action)
-                            break
+        if manager.state == "MENU":
+            draw_plant_asset(screen, SCREEN_WIDTH//2 - 250, 220, 50)
+            draw_human_asset(screen, SCREEN_WIDTH//2 + 250, 220, 45)
+            draw_lion_asset(screen, SCREEN_WIDTH//2, 220, 55)
+            
+            manager.btn_start.draw(screen)
+            manager.btn_go_minigame.draw(screen)
+            
+            pygame.draw.polygon(screen, COLOR_TEXT, [(SCREEN_WIDTH//2 - 170, 460), (SCREEN_WIDTH//2 - 170, 500), (SCREEN_WIDTH//2 - 135, 480)])
+            pygame.draw.circle(screen, COLOR_TEXT, (SCREEN_WIDTH//2 + 160, 480), 12)
+            
+            if click:
+                if manager.btn_start.rect.collidepoint((mx, my)):
+                    manager.state = "SECTION_SELECT"
+                    play_educational_sound("CLICK")
+                elif manager.btn_go_minigame.rect.collidepoint((mx, my)):
+                    manager.state = "MINI_GAME"
+                    manager.score = 0
+                    play_educational_sound("EXPLAIN")
 
-            self.screen = pygame.display.get_surface()
-            self.screen.fill((130, 210, 255))
-            self.buttons = []
-            if self.state == "menu":
-                self.menu()
-            elif self.state == "identify":
-                self.identify()
-            elif self.state == "feeder":
-                self.feeder()
-            elif self.state == "trivia":
-                self.trivia()
-            elif self.state == "leaderboard":
-                self.leaderboard_screen()
+        elif manager.state == "MINI_GAME":
+            draw_hud()
+            pygame.draw.rect(screen, COLOR_PANEL, (100, 100, SCREEN_WIDTH - 200, 540), border_radius=25)
+            pygame.draw.rect(screen, (52, 73, 94), manager.lion_target_rect, border_radius=20)
+            pygame.draw.rect(screen, (52, 73, 94), manager.deer_target_rect, border_radius=20)
+            
+            draw_lion_asset(screen, manager.lion_target_rect.centerx, manager.lion_target_rect.centery, 55)
+            draw_deer_asset(screen, manager.deer_target_rect.centerx, manager.deer_target_rect.centery, 50)
+            
+            for food in manager.foods:
+                food.draw(screen)
+                
+            if manager.show_celebration:
+                draw_confetti(screen, SCREEN_WIDTH, SCREEN_HEIGHT)
+                manager.celebration_timer -= 1
+                if manager.celebration_timer <= 0: manager.show_celebration = False
 
-            for star in self.stars:
-                star.update(dt)
-                star.draw(self.screen)
-            self.stars = [s for s in self.stars if s.life > 0]
-            for burst in self.confetti:
-                burst.update(dt)
-                burst.draw(self.screen)
-            self.confetti = [c for c in self.confetti if any(p[4] > 0 for p in c.particles)]
+        elif manager.state == "SECTION_SELECT":
+            for sec_key, btn in manager.sec_buttons.items():
+                btn.draw(screen)
+                if sec_key == "LIVING": draw_stone_asset(screen, btn.rect.centerx, btn.rect.centery - 80, 30)
+                elif sec_key == "PLANTS": draw_plant_asset(screen, btn.rect.centerx, btn.rect.centery - 80, 35)
+                elif sec_key == "ANIMALS": draw_lion_asset(screen, btn.rect.centerx, btn.rect.centery - 80, 40)
+                elif sec_key == "HUMAN": draw_human_asset(screen, btn.rect.centerx, btn.rect.centery - 80, 35)
+                
+                if click and btn.rect.collidepoint((mx, my)):
+                    manager.selected_section = sec_key
+                    manager.q_idx = 0
+                    manager.score = 0
+                    manager.setup_quiz_options()
+                    manager.state = "PLAYING"
+                    play_educational_sound("EXPLAIN")
 
-            if self.message_timer > 0:
-                self.message_timer -= dt
-                self.text(self.screen, self.message, (WIDTH//2, HEIGHT-55), 26, (60, 150, 102))
+        elif manager.state == "PLAYING":
+            draw_hud()
+            questions = SCIENCE_SECTIONS[manager.selected_section]
+            
+            if manager.q_idx < len(questions):
+                q_data = questions[manager.q_idx]
+                pygame.draw.rect(screen, COLOR_PANEL, (120, 90, SCREEN_WIDTH - 240, 400), border_radius=25)
+                
+                if manager.selected_section == "LIVING": draw_stone_asset(screen, SCREEN_WIDTH//2, 340, 40)
+                elif manager.selected_section == "PLANTS": draw_plant_asset(screen, SCREEN_WIDTH//2, 340, 40)
+                elif manager.selected_section == "ANIMALS": draw_lion_asset(screen, SCREEN_WIDTH//2, 340, 45)
+                elif manager.selected_section == "HUMAN": draw_human_asset(screen, SCREEN_WIDTH//2, 340, 40)
 
-            pygame.display.flip()
-        pygame.quit()
-
-
-if __name__ == "__main__":
-    ScienceGame().run()
+                for btn, opt_text in manager.opt_buttons:
+                    btn.draw(screen)
+                    pygame.draw.circle(screen, COLOR_TEXT, (btn.rect.x + 30, btn.rect.y + 38), 10)
+                    
+                    if click and btn.rect.collidepoint((mx, my)):
+                        if opt_text == q_data["ans"]:
+                            manager.score += 10
