@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import pygame
 import sys
 import math
@@ -24,16 +25,16 @@ COLOR_TEXT = (255, 255, 255)
 COLOR_ACCENT = (230, 126, 34)
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Science Journey Pro")
+pygame.display.set_caption("Science Journey Pro Stable")
 clock = pygame.time.Clock()
 
 def play_educational_sound(sound_type):
-    duration = 0.3
+    duration = 0.2
     sample_rate = 22050
     n_samples = int(duration * sample_rate)
     
     if sound_type == "CORRECT":
-        frequencies = [523, 659, 784, 1046]
+        frequencies = [523.25, 659.25, 783.99, 1046.50]
         samples = np.array([], dtype=np.int16)
         for freq in frequencies:
             t = np.linspace(0, duration/4, int(n_samples/4), False)
@@ -51,7 +52,7 @@ def play_educational_sound(sound_type):
 
 class AppManager:
     def __init__(self):
-        self.state = "MENU"
+        self.state = "MENU" 
         self.previous_state = "MENU"
         self.selected_section = "LIVING"
         self.q_idx = 0
@@ -151,7 +152,7 @@ def main_loop():
             manager.btn_start.draw(screen)
             manager.btn_go_minigame.draw(screen)
             
-            pygame.draw.polygon(screen, COLOR_TEXT, [(SCREEN_WIDTH//2 - 170, 460), (SCREEN_WIDTH//2 - 170, 500), (SCREEN_WIDTH//2 - 135, 480)])
+            pygame.draw.polygon(screen, COLOR_TEXT, [(SCREEN_WIDTH//2 - 170, 440), (SCREEN_WIDTH//2 - 170, 500), (SCREEN_WIDTH//2 - 135, 480)])
             pygame.draw.circle(screen, COLOR_TEXT, (SCREEN_WIDTH//2 + 160, 480), 12)
             
             if click:
@@ -215,4 +216,43 @@ def main_loop():
                     
                     if click and btn.rect.collidepoint((mx, my)):
                         if opt_text == q_data["ans"]:
-                            manager.score += 10
+يُرجى استخدام الرمز البرمجي بحذر.
+manager.score += 10
+manager.show_celebration = True
+manager.celebration_timer = 30
+manager.stars.append(RewardStars(btn.rect.centerx, btn.rect.centery))
+play_educational_sound("CORRECT")
+else:
+play_educational_sound("CLICK")
+manager.q_idx += 1
+manager.setup_quiz_options()
+if manager.q_idx < len(questions):
+play_educational_sound("EXPLAIN")
+break
+else:
+manager.state = "SECTION_SELECT"
+if manager.show_celebration:
+draw_confetti(screen, SCREEN_WIDTH, SCREEN_HEIGHT)
+manager.celebration_timer -= 1
+if manager.celebration_timer <= 0: manager.show_celebration = False
+for star in manager.stars:
+star.draw(screen)
+if len(manager.stars) > 5: manager.stars.pop(0)
+elif manager.state == "CONFIRM_EXIT":
+pygame.draw.rect(screen, COLOR_PANEL, (SCREEN_WIDTH//2 - 300, SCREEN_HEIGHT//2 - 200, 600, 350), border_radius=30)
+pygame.draw.rect(screen, COLOR_ACCENT, (SCREEN_WIDTH//2 - 300, SCREEN_HEIGHT//2 - 200, 600, 350), 4, border_radius=30)
+pygame.draw.polygon(screen, (241, 196, 15), [(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 140), (SCREEN_WIDTH//2 - 30, SCREEN_HEIGHT//2 - 80), (SCREEN_WIDTH//2 + 30, SCREEN_HEIGHT//2 - 80)])
+manager.btn_exit_yes.draw(screen)
+manager.btn_exit_no.draw(screen)
+if click:
+if manager.btn_exit_yes.rect.collidepoint((mx, my)):
+running = False
+if manager.btn_exit_no.rect.collidepoint((mx, my)):
+manager.state = manager.previous_state
+play_educational_sound("CLICK")
+pygame.display.flip()
+clock.tick(60)
+pygame.quit()
+sys.exit()
+if name == "main":
+main_loop()
